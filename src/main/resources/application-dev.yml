@@ -6,7 +6,6 @@ spring:
     username: root
     password: root
 
-
   data:
     redis:
       host: 127.0.0.1
@@ -18,6 +17,20 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
+    redisson:
+      config:
+        singleServerConfig:
+          address: "redis://${spring.redis.host}:${spring.redis.port}"
+          password: ${spring.redis.password}
+          database: ${spring.redis.database}
+          connectionPoolSize: 64
+          connectionMinimumIdleSize: 24
+          idleConnectionTimeout: 10000
+          connectTimeout: 10000
+          timeout: 3000
+          retryAttempts: 3
+          retryInterval: 1500
+
   sql:
     init:
       data-locations: classpath:data.sql
