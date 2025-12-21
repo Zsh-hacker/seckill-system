@@ -29,7 +29,7 @@ public interface CacheService {
     <T> T getWithCachePenetrationProtection(String key, Class<T> type, Supplier<T> loader, long ttl, TimeUnit unit);
 
     // 防缓存击穿
-    <T> T getWithCacheBreakdownProtection(String key, Class<T> type, Supplier<T> loader, long ttl, TimeUnit unit);
+    <T> T getWithCacheBreakdownProtection(String key, Class<T> type, Supplier<T> loader, long ttl, TimeUnit unit, long lockTimeout, TimeUnit lockUnit);
 
     // 统计信息
     CacheStats getStats();

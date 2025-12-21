@@ -158,7 +158,7 @@ public class LocalCacheManager implements CacheService {
     }
 
     @Override
-    public <T> T getWithCacheBreakdownProtection(String key, Class<T> type, Supplier<T> loader, long ttl, TimeUnit unit) {
+    public <T> T getWithCacheBreakdownProtection(String key, Class<T> type, Supplier<T> loader, long ttl, TimeUnit unit, long lockTimeout, TimeUnit lockUnit) {
         // 本地缓存简单实现，分布式环境下需要分布式锁
         return getWithCachePenetrationProtection(key, type, loader, ttl, unit);
     }
@@ -167,14 +167,14 @@ public class LocalCacheManager implements CacheService {
     public CacheStats getStats() {
         com.github.benmanes.caffeine.cache.stats.CacheStats stats = cache.stats();
 
-        return new CacheStats(
-                hitCount.get(),
-                missCount.get(),
-                putCount.get(),
-                stats.evictionCount(),
-                stats.totalLoadTime(),
-                hotKeyAccessCount.size()
-        );
+        return CacheStats.builder()
+                .hitCount(stats.hitCount())
+                .missCount(stats.missCount())
+                .putCount(putCount.get())
+                .evictionCount(stats.evictionCount())
+                .totalLoadTime(stats.totalLoadTime())
+                .hotKeyCount(hotKeyAccessCount.size())
+                .build();
     }
 
     @Override
