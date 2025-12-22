@@ -67,3 +67,13 @@ cache:
     enabled: true
     local-cache-size: 1000
     sync-delay: 1s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,cache  # 添加cache端点
+      base-path: /actuator
+    endpoint:
+      cache:
+        enabled: true

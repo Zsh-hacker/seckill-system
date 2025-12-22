@@ -25,6 +25,7 @@ public class SeckillActivity extends BaseEntity {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer status; // 0-未开始 1-进行中 2-已结束 3-已关闭
+    private Integer limitPerUser;
 
     @Version
     private Integer version;

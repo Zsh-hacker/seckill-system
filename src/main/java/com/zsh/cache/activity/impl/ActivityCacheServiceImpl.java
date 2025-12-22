@@ -420,6 +420,8 @@ public class ActivityCacheServiceImpl implements ActivityCacheService {
 
         ActivityVO vo = new ActivityVO();
         BeanUtils.copyProperties(activity, vo);
+
+        vo.setLimitPerUser(activity.getLimitPerUser());
         return vo;
     }
 }
