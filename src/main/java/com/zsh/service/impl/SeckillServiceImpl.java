@@ -10,6 +10,7 @@ import com.zsh.entity.SeckillOrder;
 import com.zsh.entity.UserSeckillRecord;
 import com.zsh.exception.BusinessException;
 import com.zsh.factory.StockStrategyFactory;
+import com.zsh.lock.segment.SegmentLockManager;
 import com.zsh.service.OrderService;
 import com.zsh.service.SeckillService;
 import com.zsh.service.UserLimitService;
@@ -24,6 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -37,6 +42,7 @@ public class SeckillServiceImpl implements SeckillService {
     private StockStrategyFactory stockStrategyFactory;
     private final SeckillActivityDao activityDao;
     private final UserSeckiillRecordDao userSeckiillRecordDao;
+    private final SegmentLockManager segmentLockManager;
 
     // 默认使用Redis扣减策略
     private static final String DEFAULT_STOCK_STRATEGY = "redis";
@@ -45,6 +51,9 @@ public class SeckillServiceImpl implements SeckillService {
     @Transactional(rollbackFor = Exception.class)
     public Result<OrderVO> executeSeckill(SeckillRequestDTO request) {
         long startTime = System.currentTimeMillis();
+
+        // 使用分段锁优化
+        segmentLockManager.lock(request.getActivityId());
 
         try {
             // 1. 参数校验
@@ -103,6 +112,8 @@ public class SeckillServiceImpl implements SeckillService {
             log.error("Seckill system error: userId={}, activityId={}",
                     request.getUserId(), request.getActivityId(), e);
             return Result.error(ErrorCode.SYSTEM_ERROR.getCode(), "系统繁忙，请稍后重试");
+        } finally {
+            segmentLockManager.unlock(request.getActivityId());
         }
     }
 
@@ -241,5 +252,38 @@ public class SeckillServiceImpl implements SeckillService {
         vo.setCreateTime(order.getCreateTime());
         vo.setPayTime(order.getPayTime());
         return vo;
+    }
+
+    /**
+     * 批量秒杀（使用分段锁优化）
+     */
+    public Result<List<OrderVO>> batchSeckill(List<SeckillRequestDTO> request) {
+        if (request == null || request.isEmpty()) {
+            return Result.error(400, "请求列表不能为空");
+        }
+
+        // 按活动ID分组，相同活动ID的请求一起处理
+        Map<Long, List<SeckillRequestDTO>> requestsByActivity = request.stream().collect(Collectors.groupingBy(SeckillRequestDTO::getActivityId));
+        List<OrderVO> results = new ArrayList<>();
+
+        // 对每个活动使用分段锁
+        for (Map.Entry<Long, List<SeckillRequestDTO>> entry : requestsByActivity.entrySet()) {
+            Long activityId = entry.getKey();
+            List<SeckillRequestDTO> activityRequests = entry.getValue();
+
+            segmentLockManager.lock(activityId);
+            try {
+                // 处理同一活动的多个请求
+                for (SeckillRequestDTO request : activityRequests) {
+                    Result<OrderVO> result = executeSeckill(request);
+                    if (result.isSuccess()) {
+                        result.add(result.getData());
+                    }
+                }
+            } finally {
+                segmentLockManager.unlock(activityId);
+            }
+            return Result.success(results);
+        }
     }
 }

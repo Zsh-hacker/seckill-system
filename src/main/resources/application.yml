@@ -17,3 +17,20 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+
+seckill:
+  thread-pool:
+    core-pool-size: 50
+    max-pool-size: 200
+    queue-capacity: 5000
+    keep-alive-seconds: 120
+    thread-name-prefix: "seckill-"
+    wait-for-tasks-to-complete-on-shutdown: true
+    await-termination-seconds: 120
+
+  segment-lock:
+    segment-count: 32  # 分段锁数量
+
+  distributed-lock:
+    default-wait-time: 3s
+    default-lease-time: 30s
