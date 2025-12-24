@@ -149,42 +149,55 @@ public class ActivityCacheServiceImpl implements ActivityCacheService {
     public boolean decreaseActivityStock(Long activityId, Integer quantity) {
         String cacheKey = CacheKey.format(CacheKey.ACTIVITY_STOCK_KEY, activityId);
 
-        // 使用Redis原子操作减少库存
-        Long currentStock = cacheManager.decrement(cacheKey, quantity);
-        if (currentStock != null && currentStock >= 0) {
-            log.debug("Decreased activity stock: {} to {}", activityId, currentStock);
-            return true;
-        }
+        try {
+            // 先获取当前库存
+            Integer currentStock = getActivityStock(activityId);
+            if (currentStock == null) {
+                log.error("Stock not found in cache for activity: {}", activityId);
+                return false;
+            }
 
-        // 如果库存不足，回滚
-        if (currentStock != null && currentStock < 0) {
-            cacheManager.increment(cacheKey, quantity);
-            log.debug("Stock insufficient, rolled back: {}", activityId);
-        }
+            if (currentStock < quantity) {
+                log.warn("Insufficient stock: activity={}, current={}, required={}",
+                        activityId, currentStock, quantity);
+                return false;
+            }
 
-        return false;
+            // 使用Redis原子操作减少库存
+            Long newStock = cacheManager.decrement(cacheKey, quantity);
+            if (newStock != null && newStock >= 0) {
+                log.debug("Decreased activity stock: {} from {} to {}",
+                        activityId, currentStock, newStock);
+
+                // 设置过期时间（防止缓存永久存在）
+                cacheManager.expire(cacheKey, ACTIVITY_STOCK_TTL, TimeUnit.SECONDS);
+                return true;
+            }
+
+            // 如果库存不足，回滚
+            if (newStock != null && newStock < 0) {
+                cacheManager.increment(cacheKey, quantity);
+                log.debug("Stock insufficient, rolled back: {}", activityId);
+            }
+
+            return false;
+        } catch (Exception e) {
+            log.error("Failed to decrease activity stock: {}", activityId, e);
+            return false;
+        }
     }
 
     @Override
     public boolean decreaseActivityStockWithLua(Long activityId, Integer quantity) {
-        // 使用Lua脚本保证原子性（在RedisCacheManager中实现）
-        String cacheKey = CacheKey.format(CacheKey.ACTIVITY_STOCK_KEY, activityId);
-
-        // 获取当前库存
-        Integer currentStock = cacheManager.get(cacheKey, Integer.class);
+        // 先确保库存已缓存
+        Integer currentStock = getActivityStock(activityId);
         if (currentStock == null) {
-            // 缓存中没有，从数据库加载
-            currentStock = getActivityStock(activityId);
+            log.error("Stock not cached for Lua script: {}", activityId);
+            return false;
         }
 
-        if (currentStock != null && currentStock >= quantity) {
-            // 原子减少
-            cacheManager.set(cacheKey, currentStock - quantity,
-                    ACTIVITY_STOCK_TTL, TimeUnit.SECONDS);
-            return true;
-        }
-
-        return false;
+        // 使用简单方式，暂时不用Lua脚本
+        return decreaseActivityStock(activityId, quantity);
     }
 
     @Override

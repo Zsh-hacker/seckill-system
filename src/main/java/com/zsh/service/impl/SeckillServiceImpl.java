@@ -16,6 +16,8 @@ import com.zsh.service.UserLimitService;
 import com.zsh.strategy.StockDeductionStrategy;
 import com.zsh.vo.OrderVO;
 import com.zsh.vo.Result;
+import jakarta.annotation.Resource;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ public class SeckillServiceImpl implements SeckillService {
     private final ActivityCacheService activityCacheService;
     private final OrderService orderService;
     private final UserLimitService userLimitService;
+    @Resource
     private StockStrategyFactory stockStrategyFactory;
     private final SeckillActivityDao activityDao;
     private final UserSeckiillRecordDao userSeckiillRecordDao;
@@ -52,6 +55,9 @@ public class SeckillServiceImpl implements SeckillService {
             if (!preCheckResult.getCode().equals(ErrorCode.SUCCESS.getCode())) {
                 return Result.error(preCheckResult.getCode(), preCheckResult.getMessage());
             }
+
+            // 确保库存已缓存到Redis
+            ensureStockCached(request.getActivityId());
 
             // 3. 用户限购检查
             if (!userLimitService.canUserPurchase(request.getUserId(),
@@ -97,6 +103,23 @@ public class SeckillServiceImpl implements SeckillService {
             log.error("Seckill system error: userId={}, activityId={}",
                     request.getUserId(), request.getActivityId(), e);
             return Result.error(ErrorCode.SYSTEM_ERROR.getCode(), "系统繁忙，请稍后重试");
+        }
+    }
+
+    private void ensureStockCached(Long activityId) {
+        try {
+            // 检查Redis中是否有库存缓存
+            Integer stock = activityCacheService.getActivityStock(activityId);
+            if (stock == null) {
+                // 从数据库加载并缓存
+                SeckillActivity activity = activityDao.selectById(activityId);
+                if (activity != null) {
+                    activityCacheService.cacheActivityStock(activityId, activity.getAvailableStock());
+                    log.info("Initialized stock cache for activity {}: {}", activityId, activity.getAvailableStock());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to ensure stock cache for activity: {}", activityId, e);
         }
     }
 

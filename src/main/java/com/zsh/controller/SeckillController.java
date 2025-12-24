@@ -1,6 +1,9 @@
 package com.zsh.controller;
 
+import com.zsh.cache.activity.ActivityCacheService;
+import com.zsh.dao.SeckillActivityDao;
 import com.zsh.dto.SeckillRequestDTO;
+import com.zsh.entity.SeckillActivity;
 import com.zsh.service.SeckillService;
 import com.zsh.vo.OrderVO;
 import com.zsh.vo.Result;
@@ -9,18 +12,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @RestController
-@RequestMapping("seckill")
+@RequestMapping("/seckill")
 @RequiredArgsConstructor
 public class SeckillController {
 
     private final SeckillService seckillService;
+    private final ActivityCacheService activityCacheService;
+    private final SeckillActivityDao activityDao;
 
     /**
      * 执行秒杀
      */
-    @PostMapping
+    @PostMapping("/execute")
     public Result<OrderVO> executeSeckill(@Validated @RequestBody SeckillRequestDTO request) {
         log.info("Seckill request received: userId={}, activityId={}, quantity={}",
                 request.getUserId(), request.getActivityId(), request.getQuantity());
@@ -39,10 +46,48 @@ public class SeckillController {
     /**
      * 初始化活动库存
      */
-    @PostMapping("/init-stock/{activityId}")
+    @PostMapping("/init-stock{activityId}")
     public Result<Boolean> initActivityStock(@PathVariable Long activityId) {
-        boolean success = seckillService.initActivityStock(activityId);
-        return success ? Result.success(true) : Result.error(500, "初始化库存失败");
+        try {
+            SeckillActivity activity = activityDao.selectById(activityId);
+            if (activity == null) {
+                return Result.error(404, "活动不存在");
+            }
+
+            // 初始化库存缓存
+            activityCacheService.cacheActivityStock(activityId, activity.getAvailableStock());
+
+            // 添加到布隆过滤器
+            activityCacheService.addToBloomFilter(activityId);
+
+            log.info("Initialized stock cache for activity {}: {}",
+                    activityId, activity.getAvailableStock());
+
+            return Result.success(true);
+        } catch (Exception e) {
+            log.error("Failed to init activity stock: {}", activityId, e);
+            return Result.error(500, "初始化库存失败");
+        }
+    }
+
+    /**
+     * 初始化所有活动库存
+     */
+    @PostMapping("/init-all-stocks")
+    public Result<Boolean> initAllStocks() {
+        try {
+            List<SeckillActivity> activities = activityDao.selectList(null);
+            for (SeckillActivity activity : activities) {
+                activityCacheService.cacheActivityStock(activity.getId(), activity.getAvailableStock());
+                activityCacheService.addToBloomFilter(activity.getId());
+            }
+
+            log.info("Initialized stock cache for {} activities", activities.size());
+            return Result.success(true);
+        } catch (Exception e) {
+            log.error("Failed to init all stocks", e);
+            return Result.error(500, "初始化所有库存失败");
+        }
     }
 
     /**
